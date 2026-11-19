@@ -44,7 +44,7 @@
 </header>
 <main>
   <div class="card">
-    <p class="hint">Paste the full question below (up to 150,000 characters). Bumble AI reads it as one message and answers in the dashboard's Ask Bumble chat.</p>
+    <p class="hint">Paste the full question below (up to 150,000 characters). Bumble AI reads it as one message and answers in the Ask Bumble chat you had open.</p>
     <textarea id="q" placeholder="Paste your full question here…" spellcheck="false"></textarea>
     <div class="bar">
       <div class="count" id="count"><b>0</b> characters · 0 words</div>
@@ -70,6 +70,7 @@ const app = new msal.PublicClientApplication({
   cache: { cacheLocation: "localStorage" }
 });
 let account = null, busy = false;
+const CHAT = (() => { let c = new URLSearchParams(location.search).get("chat"); try { if (c) sessionStorage.setItem("bumble_long_chat", c); else c = sessionStorage.getItem("bumble_long_chat"); } catch (e) {} return /^\d+$/.test(String(c || "")) ? String(c) : ""; })();
 
 function count() {
   const t = $("q").value;
@@ -112,15 +113,15 @@ async function ask() {
   show("wait", "Sending your full question (<b>" + fmt(n) + " characters</b>) to Bumble AI<span class='dots'></span>");
   try {
     const tok = await token();
-    await call("new_chat", {}, tok);
+    if (!CHAT) await call("new_chat", {}, tok);
     show("wait", "Bumble AI received all <b>" + fmt(n) + " characters</b> as one question and is starting<span class='dots'></span><br>Keep this page open for about 1 to 2 minutes; it takes you back to Ask Bumble by itself.");
-    const out = await call("ask_bumble", { question: q, dashdata: "[LONG-PAGE] Asked from the Long question page; no dashboard snapshot. Use the SQL data.", chatid: "" }, tok);
+    const out = await call("ask_bumble", { question: q, dashdata: "[LONG-PAGE] Asked from the Long question page; no dashboard snapshot. Use the SQL data.", chatid: CHAT }, tok);
     const ready = /answer ready/i.test(out);
     show("ok", (ready ? "&#9989; <b>Answer ready.</b>" : "&#9203; <b>Bumble AI is doing a deep analysis in the background.</b> The full answer appears in Ask Bumble in a few minutes.") +
-      "<br>Your question: " + fmt(n) + " characters, sent as one message (new chat).");
+      "<br>Your question: " + fmt(n) + " characters, sent as one message into " + (CHAT ? "the chat you had open" : "a new chat") + ".");
     try { sessionStorage.removeItem("bumble_long_draft"); } catch (e) {}
     $("q").value = "";
-    $("status").insertAdjacentHTML("beforeend", "<br><b>Taking you back to Ask Bumble in 3 seconds…</b> Open the newest chat at the top of the chats list.");
+    $("status").insertAdjacentHTML("beforeend", "<br><b>Taking you back to Ask Bumble in 3 seconds…</b> " + (CHAT ? "The answer appears in the same chat." : "Open the newest chat at the top of the chats list.") + "");
     setTimeout(goBack, 3000);
   } catch (e) {
     show("err", "&#10060; Could not send the question: " + String(e.message || e).replace(/</g, "&lt;") + "<br>Your text is still in the box. Press Ask again.");
