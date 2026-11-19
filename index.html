@@ -12,6 +12,8 @@
   header .t1 { font-size: 13px; letter-spacing: 2px; color: #FDBA74; font-weight: 700; }
   header .t2 { font-size: 20px; font-weight: 600; margin-top: 2px; }
   header .who { font-size: 13px; color: #BFDBFE; text-align: right; }
+  .back { background: #FDBA74; color: #071530; padding: 9px 18px; font-size: 15px; margin-top: 6px; }
+  .back:disabled { background: #94A3B8; color: #1E293B; cursor: default; }
   main { max-width: 1100px; margin: 18px auto; padding: 0 18px; }
   .card { background: #fff; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px 18px; }
   .hint { font-size: 14px; color: #475569; margin: 0 0 10px; }
@@ -38,7 +40,7 @@
 <body>
 <header>
   <div><div class="t1">BUMBLE AI</div><div class="t2">Long question: paste the whole prompt once</div></div>
-  <div class="who" id="who">Signing in…</div>
+  <div class="who"><div id="who">Signing in…</div><button class="back" id="back">&#8592; Back to Ask Bumble</button></div>
 </header>
 <main>
   <div class="card">
@@ -78,6 +80,11 @@ function count() {
   $("ask").disabled = busy || !account || !t.trim() || t.length > CFG.max;
   try { sessionStorage.setItem("bumble_long_draft", t); } catch (e) {}
 }
+function goBack() {
+  try { if (window.opener && !window.opener.closed) { window.opener.focus(); } } catch (e) {}
+  try { window.close(); } catch (e) {}
+  setTimeout(() => { location.href = CFG.dash; }, 400);
+}
 function show(kind, html) { const s = $("status"); s.className = "card show " + kind; s.innerHTML = html; }
 
 async function token() {
@@ -100,23 +107,28 @@ async function ask() {
   const q = $("q").value.trim();
   if (!q || busy) return;
   busy = true; count();
+  $("back").disabled = true; $("back").textContent = "Sending… keep this open";
   const n = q.length;
   show("wait", "Sending your full question (<b>" + fmt(n) + " characters</b>) to Bumble AI<span class='dots'></span>");
   try {
     const tok = await token();
     await call("new_chat", {}, tok);
-    show("wait", "Bumble AI received all <b>" + fmt(n) + " characters</b> as one question and is working on it<span class='dots'></span><br>Deep studies take 5 to 15 minutes. You can open Ask Bumble now; the answer appears there by itself.<br><a class='open' href='" + CFG.dash + "' target='_blank' rel='noopener'>Open Ask Bumble</a>");
+    show("wait", "Bumble AI received all <b>" + fmt(n) + " characters</b> as one question and is starting<span class='dots'></span><br>Keep this page open for about 1 to 2 minutes; it takes you back to Ask Bumble by itself.");
     const out = await call("ask_bumble", { question: q, dashdata: "[LONG-PAGE] Asked from the Long question page; no dashboard snapshot. Use the SQL data.", chatid: "" }, tok);
     const ready = /answer ready/i.test(out);
     show("ok", (ready ? "&#9989; <b>Answer ready.</b>" : "&#9203; <b>Bumble AI is doing a deep analysis in the background.</b> The full answer appears in Ask Bumble in a few minutes.") +
-      "<br>Your question: " + fmt(n) + " characters, sent as one message (new chat).<br><a class='open' href='" + CFG.dash + "' target='_blank' rel='noopener'>Open Ask Bumble</a>");
+      "<br>Your question: " + fmt(n) + " characters, sent as one message (new chat).");
     try { sessionStorage.removeItem("bumble_long_draft"); } catch (e) {}
+    $("q").value = "";
+    $("status").insertAdjacentHTML("beforeend", "<br><b>Taking you back to Ask Bumble in 3 seconds…</b> Open the newest chat at the top of the chats list.");
+    setTimeout(goBack, 3000);
   } catch (e) {
     show("err", "&#10060; Could not send the question: " + String(e.message || e).replace(/</g, "&lt;") + "<br>Your text is still in the box. Press Ask again.");
-  } finally { busy = false; count(); }
+  } finally { busy = false; count(); $("back").disabled = false; $("back").innerHTML = "&#8592; Back to Ask Bumble"; }
 }
 
 $("q").addEventListener("input", count);
+$("back").addEventListener("click", goBack);
 $("ask").addEventListener("click", ask);
 $("clear").addEventListener("click", () => { $("q").value = ""; count(); $("q").focus(); });
 
