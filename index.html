@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bumble AI · Long question</title>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.39.0/lib/msal-browser.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: #F1F5F9; color: #0B1F4D; }
+  header { background: linear-gradient(90deg, #071530, #0F2A5E, #1E40AF); color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  header .t1 { font-size: 13px; letter-spacing: 2px; color: #FDBA74; font-weight: 700; }
+  header .t2 { font-size: 20px; font-weight: 600; margin-top: 2px; }
+  header .who { font-size: 13px; color: #BFDBFE; text-align: right; }
+  main { max-width: 1100px; margin: 18px auto; padding: 0 18px; }
+  .card { background: #fff; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px 18px; }
+  .hint { font-size: 14px; color: #475569; margin: 0 0 10px; }
+  textarea { width: 100%; height: 56vh; min-height: 280px; resize: vertical; border: 1px solid #CBD5E1; border-radius: 10px; padding: 12px 14px; font: 15px/1.45 "Segoe UI", Arial, sans-serif; color: #0F172A; }
+  textarea:focus { outline: 2px solid #1E40AF; border-color: #1E40AF; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+  .count { font-size: 15px; color: #0F2A5E; }
+  .count b { font-size: 18px; }
+  .count.over { color: #B91C1C; }
+  button { border: 0; border-radius: 10px; padding: 11px 26px; font: 600 16px "Segoe UI", Arial, sans-serif; cursor: pointer; }
+  .ask { background: #F97316; color: #fff; }
+  .ask:disabled { background: #FDBA74; cursor: default; }
+  .sec { background: #E2E8F0; color: #0F2A5E; }
+  #status { margin-top: 14px; font-size: 16px; line-height: 1.5; display: none; }
+  #status.show { display: block; }
+  .ok { border-left: 5px solid #16A34A; }
+  .wait { border-left: 5px solid #F97316; }
+  .err { border-left: 5px solid #B91C1C; }
+  .dots::after { content: ""; animation: d 1.2s steps(4) infinite; }
+  @keyframes d { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  a.open { display: inline-block; margin-top: 8px; background: #0F2A5E; color: #fff; text-decoration: none; padding: 9px 18px; border-radius: 10px; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <div><div class="t1">BUMBLE AI</div><div class="t2">Long question: paste the whole prompt once</div></div>
+  <div class="who" id="who">Signing in…</div>
+</header>
+<main>
+  <div class="card">
+    <p class="hint">Paste the full question below (up to 150,000 characters). Bumble AI reads it as one message and answers in the dashboard's Ask Bumble chat.</p>
+    <textarea id="q" placeholder="Paste your full question here…" spellcheck="false"></textarea>
+    <div class="bar">
+      <div class="count" id="count"><b>0</b> characters · 0 words</div>
+      <div><button class="sec" id="clear">Clear</button> <button class="ask" id="ask" disabled>Ask Bumble AI</button></div>
+    </div>
+  </div>
+  <div class="card" id="status"></div>
+</main>
+<script>
+const CFG = {
+  clientId: "95144587-ebf4-4de6-80df-9efd00060781",
+  tenant: "b0c0bc83-121b-4479-af01-e33a7ed8b6a9",
+  scope: "https://analysis.windows.net/powerbi/api/UserDataFunction.Execute.All",
+  ws: "c61e6d98-5931-499e-8656-75bf5d53a7bc",
+  udf: "b931b67b-79c9-4bab-b907-0ba3c39abec9",
+  dash: "https://app.powerbi.com/groups/c61e6d98-5931-499e-8656-75bf5d53a7bc/reports/264ca07b-4a78-4b11-82f0-3eafa2dc9541/ask_bumble_ai",
+  max: 150000
+};
+const $ = id => document.getElementById(id);
+const fmt = n => n.toLocaleString("en-US");
+const app = new msal.PublicClientApplication({
+  auth: { clientId: CFG.clientId, authority: "https://login.microsoftonline.com/" + CFG.tenant, redirectUri: location.origin + location.pathname },
+  cache: { cacheLocation: "localStorage" }
+});
+let account = null, busy = false;
+
+function count() {
+  const t = $("q").value;
+  const words = (t.trim().match(/\S+/g) || []).length;
+  const el = $("count");
+  el.innerHTML = "<b>" + fmt(t.length) + "</b> characters · " + fmt(words) + " words" + (t.length > CFG.max ? " · too long, max " + fmt(CFG.max) : "");
+  el.classList.toggle("over", t.length > CFG.max);
+  $("ask").disabled = busy || !account || !t.trim() || t.length > CFG.max;
+  try { sessionStorage.setItem("bumble_long_draft", t); } catch (e) {}
+}
+function show(kind, html) { const s = $("status"); s.className = "card show " + kind; s.innerHTML = html; }
+
+async function token() {
+  try {
+    return (await app.acquireTokenSilent({ scopes: [CFG.scope], account })).accessToken;
+  } catch (e) {
+    return (await app.acquireTokenPopup({ scopes: [CFG.scope], account })).accessToken;
+  }
+}
+async function call(fn, body, tok) {
+  const url = "https://api.fabric.microsoft.com/v1/workspaces/" + CFG.ws + "/userDataFunctions/" + CFG.udf + "/functions/" + fn + "/invoke";
+  const r = await fetch(url, { method: "POST", headers: { "Authorization": "Bearer " + tok, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const txt = await r.text();
+  let j = null; try { j = JSON.parse(txt); } catch (e) {}
+  if (!r.ok || !j || j.status !== "Succeeded") throw new Error((j && j.errors && j.errors.length ? JSON.stringify(j.errors).slice(0, 300) : "HTTP " + r.status + " " + txt.slice(0, 200)));
+  return String(j.output || "");
+}
+
+async function ask() {
+  const q = $("q").value.trim();
+  if (!q || busy) return;
+  busy = true; count();
+  const n = q.length;
+  show("wait", "Sending your full question (<b>" + fmt(n) + " characters</b>) to Bumble AI<span class='dots'></span>");
+  try {
+    const tok = await token();
+    await call("new_chat", {}, tok);
+    show("wait", "Bumble AI received all <b>" + fmt(n) + " characters</b> as one question and is working on it<span class='dots'></span><br>Deep studies take 5 to 15 minutes. You can open Ask Bumble now; the answer appears there by itself.<br><a class='open' href='" + CFG.dash + "' target='_blank' rel='noopener'>Open Ask Bumble</a>");
+    const out = await call("ask_bumble", { question: q, dashdata: "[LONG-PAGE] Asked from the Long question page; no dashboard snapshot. Use the SQL data.", chatid: "" }, tok);
+    const ready = /answer ready/i.test(out);
+    show("ok", (ready ? "&#9989; <b>Answer ready.</b>" : "&#9203; <b>Bumble AI is doing a deep analysis in the background.</b> The full answer appears in Ask Bumble in a few minutes.") +
+      "<br>Your question: " + fmt(n) + " characters, sent as one message (new chat).<br><a class='open' href='" + CFG.dash + "' target='_blank' rel='noopener'>Open Ask Bumble</a>");
+    try { sessionStorage.removeItem("bumble_long_draft"); } catch (e) {}
+  } catch (e) {
+    show("err", "&#10060; Could not send the question: " + String(e.message || e).replace(/</g, "&lt;") + "<br>Your text is still in the box. Press Ask again.");
+  } finally { busy = false; count(); }
+}
+
+$("q").addEventListener("input", count);
+$("ask").addEventListener("click", ask);
+$("clear").addEventListener("click", () => { $("q").value = ""; count(); $("q").focus(); });
+
+(async () => {
+  try { const d = sessionStorage.getItem("bumble_long_draft"); if (d) $("q").value = d; } catch (e) {}
+  try {
+    const res = await app.handleRedirectPromise();
+    account = (res && res.account) || app.getAllAccounts()[0] || null;
+    if (!account) { await app.loginRedirect({ scopes: [CFG.scope] }); return; }
+    app.setActiveAccount(account);
+    $("who").textContent = "Signed in: " + (account.name || account.username);
+  } catch (e) {
+    $("who").textContent = "Sign-in problem";
+    show("err", "Microsoft sign-in failed: " + String(e.message || e).replace(/</g, "&lt;"));
+  }
+  count();
+})();
+</script>
+</body>
+</html>
